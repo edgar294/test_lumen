@@ -4,6 +4,12 @@ Pequena prueba tecnica desarrollada con Lumen y Mysql
 
 ## Puntos a considerar:
 
+Para clonar el repositorio, se deben ejecutar los siguientes comandos:
+
+    _git clone https://github.com/edgar294/test_lumen.git_
+    cd test_lumen/
+    composer install
+
 Para la correcta ejecucion de las actualizaciones se debe configurar adecuadamente las credenciales
 de la base de datos. Estas se configuran haciendo una copia el archivo _.env.example_ o renombrandolo 
 como _.env_ y sobrecribiendo los valores adecuados en las variables __DB_DATABASE, DB_USERNAME y DB_PASSWORD__
