@@ -9,6 +9,8 @@ use Illuminate\Database\Capsule\Manager as DB;
 
 class PreguntasController extends BaseController
 {
+    private $estados = ['Publicada', 'Expirada', 'Derogada', 'Obsoleta'];
+
     public function corregirTest(Request $request)
     {
         $params = new \stdClass();
@@ -24,8 +26,7 @@ class PreguntasController extends BaseController
         if (isset($params->preguntas)) {
             $preguntas_json = $params->preguntas;
             foreach ($preguntas_json as $pregunta_json) {
-                $acertada = 1; //Asumimos la pregunta como acertada ya que cuando exista un fallo ya siempre se marcará como fallada.
-                $contestada = null;
+                $acertada = 1; //Asumimos la pregunta como acertada ya que cuando exista un fallo ya siempre se marcará como fallada.                
                 $fallos = 0;
                 $respondida = false; //Esta variable determina si el usuario ha contestado la pregunta.     
                 if (isset($pregunta_json["marcado"]) && $params->bloqueID == 1 && $params->oposicionID == 2) {
@@ -122,28 +123,37 @@ class PreguntasController extends BaseController
         ));
     }
 
-    public function listarTest(Request $request, $oposicionId, $tipoId, $bloqueId, $status = null)
+    public function listarTest(Request $request, $oposicionId, $tipoId, $bloqueId, $estado = null)
     {
-        $results = app('db')->select(
-            "SELECT pt.testID, pct.nombre
+        if ($estado && !in_array($estado, $this->estados)) {
+            return response()->json([
+                'mensaje' => 'El estado solicitado no es valido'
+            ]);
+        }
+
+        $query = "SELECT pt.testID, pct.nombre
             FROM preguntas_config_tests pct
             JOIN preguntas_tests pt ON pt.testID = pct.id
             JOIN preguntas_bloque pb ON pb.preguntaID = pt.preguntaID
+            JOIN preguntas p ON p.id = pt.preguntaID
             WHERE pt.oposicionID = {$oposicionId}
                 AND pb.bloqueID = {$bloqueId}
-                AND pct.test_tipoID = {$tipoId}
-            GROUP BY pt.testID, pct.nombre
-            HAVING COUNT(*) >= 5"
-        );
+                AND pct.test_tipoID = {$tipoId}";
+
+        if ($estado) $query .= " AND p.estado = '" . $estado ."' ";
+
+        $query .= " GROUP BY pt.testID, pct.nombre
+            HAVING COUNT(*) >= 5";
+
+        $results = app('db')->select($query);
         return response()->json([
             'test_con_mas_de_5_preguntas' => $results
         ]);
     }
 
     public function actualizarEstadoPregunta($preguntaId, $nuevoEstado)
-    {
-        $estados = ['Publicada', 'Expirada', 'Derogada', 'Obsoleta'];
-        if (!in_array($nuevoEstado, $estados)) {
+    {        
+        if (!in_array($nuevoEstado, $this->estados)) {
             return response()->json([
                 'mensaje' => 'El estado solicitado no es valido'
             ]);
@@ -217,5 +227,63 @@ class PreguntasController extends BaseController
                 'estado_actual' => $pregunta->estado,
             ]);
         }
+    }
+
+    public function corregirTestV2(Request $request)
+    {
+        $params = new \stdClass();
+        $input = $request->all();
+        foreach ($input as $filter => $value) {
+            $params->$filter = $value;
+        }
+
+        $total_preguntas_acertadas = 0;
+        $total_preguntas_no_contestadas = 0;
+        
+        if (isset($params->preguntas)) {
+            $preguntas_json = $params->preguntas;
+            foreach ($preguntas_json as $pregunta_json) {
+                $acertada = true; //Asumimos la pregunta como acertada ya que cuando exista un fallo ya siempre se marcará como fallada.                
+                $respondida = false; //Esta variable determina si el usuario ha contestado la pregunta.     
+                if (isset($pregunta_json["marcado"]) && $params->bloqueID == 1 && $params->oposicionID == 2) {
+                    $respondida = true;
+
+                    if ($pregunta_json["marcado"] == 1 && count($pregunta_json["respuestas"]) > 0) {                        
+                        $acertada = false;
+
+                    } else if ($pregunta_json["marcado"] == -1 && count($pregunta_json["respuestas"]) == 0) {
+                        $acertada = false;                        
+                        
+                    } else {
+                        $acertada = false;
+                        $respondida = false;
+                    }
+                } else {
+                    foreach ($pregunta_json["respuestas"] as $respuesta) {
+                        if ($respuesta["contestada"] == true) {
+                            $respondida = true; //Usamos esta variable para ortografía,  en el caso de que no se seleccione ninguna respuesta.
+                            $acertada = ($respuesta["correcta"] == 1);
+                        }                        
+                        else{
+                            if ($respuesta["correcta"] == 1) {
+                                $acertada = 0; //Una vez marcada como fallada ya la pregunta no puede ser nunca acertada          
+                            }
+                        }
+                    }
+                }
+                //Actualizamos contadores de preguntas
+                if (!$respondida) {
+                    $total_preguntas_no_contestadas++;
+                } else if ($acertada) {
+                    $total_preguntas_acertadas++;
+                }
+            }
+        }
+
+        echo json_encode(array(
+            "preguntas_acertadas" => $total_preguntas_acertadas,
+            "total_preguntas_no_contestadas" => $total_preguntas_no_contestadas,
+            "total_preguntas_falladas" => count($params->preguntas) - $total_preguntas_acertadas - $total_preguntas_no_contestadas,
+        ));
     }
 }
